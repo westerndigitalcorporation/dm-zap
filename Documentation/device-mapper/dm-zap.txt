@@ -1,0 +1,170 @@
+dm-zap
+======
+
+The dm-zap(Zone Append device mapper) device mapper target turns a set of
+sequential write required zones into conventional zones, thus allowing random
+writes to a disk only exposing sequential write required zones.
+
+This is useful for applications and filesystems requiring a set of conventional
+zones for in-place updates of i.e. metadata.
+
+dm-zap target devices are formatted and checked using the dmzap utility
+available at: TBD
+
+Design
+======
+
+dm-zap is designed to be a low-overhead(disk/host mem usage) adaptor to enable
+file systems and applications to store a limited amount of data in an area that
+allows random writes.
+
+Disk format
+===========
+
+Zones 0..1:    Reserved for superblock storage and for
+               persisting mapping data for data in open zones
+
+Zones 2..R:    Zones used for storing random writes
+
+Zones R..N-1:  Zones used for storing sequential writes
+               Writes to this area are just remapped and
+               passed through to the backing media.
+
+N = Number on zones reported by backing media
+
+Example:
+
+Zone      Type    Contents                   Comment
+                   _______________________
+Zone 0    Meta    |HMMMMMMMMMMMMMMMMMMMMMM|  Full ZAP_META zone
+                  |MMMMMMMMMMMMMMMMMMMMMMM|
+                   -----------------------
+Zone 1    Meta    |HMMMMMMMM              |  Active ZAP_META zone
+                  |                       |
+                   -----------------------
+Zone 2    Rand    |HDDDDDDDDDDDDDDDDDDDDDD|  Full ZAP_RAND zone
+                  |DDDDDDDDDDDDDDDDMMMMMMF|
+                   -----------------------
+Zone 3    Rand    |HDDDDDDDDDDDDDDDDDDDDDD|  Active ZAP_RAND zone
+                  |DDDDDDDDD              |
+                   -----------------------
+Zone ..   Rand    |.......................|  Full ZAP_RAND zone
+                  |.......................|
+                   -----------------------
+Zone R    Rand    |HDDDDDDDDDDDDDDDDDDDDDD|  Full ZAP_RAND zone
+                  |DDDDDDDDDDDDDDDDDDMMMMF|
+                   -----------------------
+Zone R    Seq     |DDDDDDDDDDDDDDDDDDDDDDD|  Full user sequential data zone
+                  |DDDDDDDDDDDDDDDDDDDDDDD|
+                   -----------------------
+Zone R+1  Seq     |DDDDDDDDDDDDDDDDDDDDDDD|  Open sequential data zone
+                  |DDDD                   |
+                   -----------------------
+Zone ..   Seq     |.......................|  Sequential data zone
+                  |.......................|
+                   -----------------------
+Zone N-1  Seq     |DDDDDDDDDDDDDDDDDDDDDDD|  Last zone of the disk
+                  |DDDD                   |
+                   -----------------------
+
+Ledgend: M = Mapping data, H = Zone header, F = Zone footer D = User data
+        (4k blocks)
+
+Metadata
+========
+
+A zone header is stored att offset 0 of all zones that are managed by dm-zap.
+A zone footer is stored for all random zones.
+
+The header and footers are stored as one dm-zap block (4k).
+
+Header format (512 bytes)
+
+Field           Size(bytes)   Offset  Comment
+
+MAGIC           4               0     {'z','a','p','0'}
+VERSION         4               4
+SEQUENCE_NR     4               8     Increases monotonically for each
+                                      written header
+TYPE            4              12     Types: ZAP_META = 0 / ZAP_RAND = 1
+RESERVED        492            16     Reserved for future use. Filled with 0xFF
+CRC             4             504     CRC of all above fields
+
+Footer format (512 bytes)
+
+Field           Size(bytes)  Offset   Comment
+
+SEQUENCE_NR     4               0     Copy of SEQUENCE_NR in the zone header
+MAPPING_START   4               4     Start of zone mapping data
+                                      relative to zone start adress
+RESERVED        500             8     Reserved for future use. Padded with 0xFF
+CRC             4             508     CRC of zone mapping data + above fields
+
+
+The logical-to-device mapping for the random zones are stored at the end of each
+random zone. To prevent dataloss because of crashes/powerloss, the mapping data
+for the active random zone is stored in the metadata blocks until the random
+zone is closed to gurantee that data can be read from disk after a
+sync / REQ_PREFLUSH request.
+
+Mapping entry format (8 bytes)
+
+Field           Size(bytes)  Offset   Comment
+
+START           4               0     Logical start block
+LENGTH          4               4     Length of write, in 4k blocks
+ADDRESS         4               8     Backing block adress
+
+User view
+=========
+
+A number of zones is exposed to the user by dm-zap, first a number(C) of
+conventional zones that are managed by dm-zap, followed by a number of sequential
+write required zones that dm-zap only remaps and passes on to the backing media.
+
+Note that the number of backing zones (R) for the conventional zones is bigger than C.
+In addition to user data, the backing zones needs to store mapping metadata and reserve
+space for doing garbage collection.
+
+The zone size is the typical zone size reported by the backing media.
+
+Zone        Type
+
+Zone 0      BLK_ZONE_TYPE_CONVENTIONAL
+Zone 1      BLK_ZONE_TYPE_CONVENTIONAL
+Zone ..     BLK_ZONE_TYPE_CONVENTIONAL
+Zone C      BLK_ZONE_TYPE_CONVENTIONAL
+Zone C+1    BLK_ZONE_TYPE_SEQWRITE_REQ
+Zone ..     BLK_ZONE_TYPE_SEQWRITE_REQ
+Zone N-1    BLK_ZONE_TYPE_SEQWRITE_REQ
+
+Usage
+=====
+
+A zoned block device must first be formatted using the dmzap tool. This will
+check the zone configuration of the disk, calculate the number of zones
+to reserve for the conventional zones and write the superblock.
+
+The dmz tool also supports repairing the disk after a crash or a powerloss.
+
+Formatting the disk is needed prior to using it for the first time:
+
+[[
+##!/bin/sh
+# format disk using the dmzap tool
+dmzap format --conventional 8 $1
+]]
+
+Once the disk is formatted, the device mapper target can be created:
+
+[[
+##!/bin/sh
+# create dm-zap target
+dev=$1
+echo "0 `blockdev --getsize ${dev}` zap ${dev}" | dmsetup create dmzap-`basename ${dev}`
+]]
+
+This will result in a disk exposing 8 conventional zones with the same size
+as the disk's sequential write required zones.
+
+
