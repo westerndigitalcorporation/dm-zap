@@ -36,6 +36,11 @@ void dmzap_update_seq_wp(struct dmzap_target *dmzap, sector_t bio_sectors)
 			dmzap_assign_zone_to_reclaim_class(dmzap, &dmzap->dmzap_zones[dmzap->dmzap_zone_wp]);
 		}
 
+		if(dmzap->victim_selection_method == DMZAP_CONST_CB || dmzap->victim_selection_method == DMZAP_CONST_GREEDY){
+			list_add_tail(&(dmzap->dmzap_zones[dmzap->dmzap_zone_wp].num_invalid_blocks_link), &(dmzap->num_invalid_blocks_lists[dmzap->dmzap_zones[dmzap->dmzap_zone_wp].nr_invalid_blocks]));
+			//dmz_dev_debug(dmzap->dev, "Added zone %u to list %d for cb", dmzap->dmzap_zone_wp, dmzap->dmzap_zones[dmzap->dmzap_zone_wp].nr_invalid_blocks);
+		}
+
 		/* Find new zone to write to*/
 		for (i = 1; i < dmzap->nr_internal_zones; i++) {
 			current_zone = (i + dmzap->dmzap_zone_wp) % dmzap->nr_internal_zones;

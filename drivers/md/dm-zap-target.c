@@ -7,9 +7,29 @@
 #include "dm-zap.h"
 
 #include <linux/module.h>
+#include <linux/kobject.h>
+#include <linux/sysfs.h>
+#include <linux/init.h>
+#include <linux/fs.h>
+#include <linux/string.h> 
+
 
 /* TODO: this might not work for us. Calculate the need */
 #define DMZAP_MIN_BIOS		8192
+
+static struct kobject *zap_stat_kobject;
+struct dmzap_target* dmzap_ptr;
+
+static ssize_t reset_zap_stats(struct kobject *kobj, struct kobj_attribute *attr,
+                      const char *buf, size_t count)
+{
+	dmzap_ptr->nr_user_written_sec = 0;
+	dmzap_ptr->nr_gc_written_sec = 0;
+        return count;
+}
+
+static struct kobj_attribute zap_reset_attribute =__ATTR(reset_stats, 0220, NULL,
+                                                   reset_zap_stats);
 
 /*
  * Initialize the bio context
@@ -630,6 +650,8 @@ static int dmzap_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 	unsigned int q_cap;
 	char dummy;
 	int ret;
+	int error;
+
 
 	/* We reuse macros and other stuff from dm-zoned.
 	 * Make sure that dm-zoned does not unexpectedly change
@@ -666,7 +688,7 @@ static int dmzap_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 	}
 
 	if (sscanf(argv[5], "%u%c", &victim_selection_method, &dummy) != 1
-			|| victim_selection_method > 3 ) {
+			|| victim_selection_method > DMZAP_VICTIM_POLICY_MAX ) {
 		ti->error = "Invalid victim selection method";
 		return -EINVAL;
 	}
@@ -778,6 +800,9 @@ static int dmzap_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 	dmzap->nr_user_written_sec = 0;
 	dmzap->nr_gc_written_sec = 0;
 	dmzap->wa_print_time = jiffies;
+	dmzap->gc_time = 0;
+	dmzap->gc_count = 0;
+
 
 	dmz_dev_info(dev, "target internal zones: %u meta, %u overprovisioning",
 			dmzap->nr_meta_zones, dmzap->nr_op_zones);
@@ -819,6 +844,18 @@ static int dmzap_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 	dmzap->dev_capacity,
 	dmzap->q_cap);
 
+	zap_stat_kobject = kobject_create_and_add("zap",
+                                                 kernel_kobj);
+	
+	dmzap_ptr = dmzap;
+        if(!zap_stat_kobject)
+                return -ENOMEM;
+
+        error = sysfs_create_file(zap_stat_kobject, &zap_reset_attribute.attr);
+        if (error) {
+                pr_debug("failed to create the reset_stats file in /sys/kernel/zap \n");
+        }
+
 	return 0;
 
 err_cwq:
@@ -834,6 +871,8 @@ err_dev:
 	dmzap_put_zoned_device(ti);
 err:
 	kfree(dmzap);
+
+	kobject_put(zap_stat_kobject);
 
 	return ret;
 }

@@ -74,6 +74,9 @@ struct dmzap_zone {
 	/* CostBenefit value */
 	long long cb;
 
+	struct list_head	num_invalid_blocks_link;
+	//struct list_head	cb_l
+
 	struct list_head	link;
 	struct rb_node		node;
 	int reclaim_class;
@@ -140,6 +143,10 @@ enum {
 	DMZAP_CB,
 	DMZAP_FAST_CB,
 	DMZAP_APPROX_CB,
+	DMZAP_CONST_GREEDY,
+	DMZAP_CONST_CB,
+	DMZAP_VICTIM_POLICY_MAX
+
 };
 
 /*
@@ -196,6 +203,8 @@ struct dmzap_target {
 	struct mutex		reclaim_lock;
 	unsigned int reclaim_limit;
 
+	struct list_head*	num_invalid_blocks_lists; // Index is the number of invalid blocks
+
 	/* For fast CB reclaim */
 	struct list_head	reclaim_class_0;
 	struct rb_root reclaim_class_1_rbtree; //todo destruct
@@ -231,6 +240,9 @@ struct dmzap_target {
 	u64 nr_user_written_sec;
 	u64 nr_gc_written_sec;
 	int debug_int;
+
+	u64 gc_time;
+	u64 gc_count;
 
 	spinlock_t debug_lock;
 	unsigned long		flags; //TODO maybe not needed. -> used for wait_on_bit_io to wait for reclaim before writing.

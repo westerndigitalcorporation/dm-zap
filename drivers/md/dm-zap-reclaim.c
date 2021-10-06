@@ -280,6 +280,20 @@ int dmzap_invalidate_blocks(struct dmzap_target *dmzap,
       current_zone->nr_invalid_blocks++;
 			currentTime = jiffies;
 			current_zone->zone_age = currentTime;
+    if (current_zone->zone->cond == BLK_ZONE_COND_FULL &&  (dmzap->victim_selection_method == DMZAP_CONST_GREEDY || dmzap->victim_selection_method == DMZAP_CONST_CB)){
+          //dmz_dev_debug(dmzap->dev, "Updating constant time lists for zone %u with %d invalid blocks", current_zone->seq, current_zone->nr_invalid_blocks);
+
+          // list_for_each_entry(zone_iterator, &(dmzap->num_invalid_blocks_lists[current_zone->nr_invalid_blocks-1]), num_invalid_blocks_link){
+          // 	if (zone_iterator == current_zone){
+          // 		found = true;
+          // 		break;
+          // 	}
+          // }
+          // BUG_ON(!found);
+          list_del(&(current_zone->num_invalid_blocks_link));
+          list_add_tail(&(current_zone->num_invalid_blocks_link), &(dmzap->num_invalid_blocks_lists[current_zone->nr_invalid_blocks]));
+    }
+
       if (current_zone->zone->cond == BLK_ZONE_COND_FULL &&
             dmzap->victim_selection_method == DMZAP_FAST_CB) {
 
@@ -333,6 +347,10 @@ int dmzap_validate_blocks(struct dmzap_target *dmzap,
   unsigned int nr_blocks)
 {
   sector_t current_block;
+	struct dmzap_zone *zone_iterator;
+	struct dmzap_zone *current_zone;
+	bool found = false;
+  
   if(dmzap->show_debug_msg){
     dmz_dev_debug(dmzap->dev, "Validate backing_block %llu, %u blocks",
             (u64)backing_block, nr_blocks);
@@ -345,6 +363,22 @@ int dmzap_validate_blocks(struct dmzap_target *dmzap,
     if (dmzap->map.invalid_device_block[current_block] == 1) {
       dmzap->map.invalid_device_block[current_block] = 0;
       dmzap->dmzap_zones[dmzap_block2zone_id(dmzap,current_block)].nr_invalid_blocks--;
+      if (current_zone->zone->cond == BLK_ZONE_COND_FULL && (dmzap->victim_selection_method == DMZAP_CONST_GREEDY || dmzap->victim_selection_method == DMZAP_CONST_CB)){
+				//dmz_dev_debug(dmzap->dev, "Updating constant time lists for zone %u with %d invalid blocks", current_zone->seq, current_zone->nr_invalid_blocks);
+
+
+				// list_for_each_entry(zone_iterator, &(dmzap->num_invalid_blocks_lists[current_zone->nr_invalid_blocks+1]), num_invalid_blocks_link){
+				// 	if (zone_iterator == current_zone){
+				// 		found = true;
+				// 		break;
+				// 	}
+				// }
+				// BUG_ON(!found);
+
+
+				list_del(&(current_zone->num_invalid_blocks_link));
+				list_add_tail(&(current_zone->num_invalid_blocks_link), &(dmzap->num_invalid_blocks_lists[current_zone->nr_invalid_blocks]));
+			}
     }
     nr_blocks--;
   }
@@ -636,6 +670,70 @@ struct dmzap_zone * dmzap_victim_selection(struct dmzap_target *dmzap)
 }
 
 /*
+ * Selecting the zone, that will be freed. Constant time greedy victim selection
+ */
+struct dmzap_zone *
+dmzap_const_greedy_victim_selection(struct dmzap_target *dmzap)
+{
+	struct dmzap_zone *victim = &dmzap->dmzap_zones[0];
+	int i = 0;
+	int max_invalid_blocks = 0;
+
+	for (i = dmzap->dev->zone_nr_blocks; i > 0; i--) {
+		if (list_empty(&dmzap->num_invalid_blocks_lists[i])) {
+			continue;
+		}
+		victim = list_first_entry(&dmzap->num_invalid_blocks_lists[i],
+					  struct dmzap_zone,
+					  num_invalid_blocks_link);
+		list_del(&victim->num_invalid_blocks_link);
+		BUG_ON(victim->zone->cond != BLK_ZONE_COND_CLOSED &&
+		        victim->zone->cond != BLK_ZONE_COND_FULL);
+		//dmz_dev_debug(dmzap->dev, "Selected zone %p for eviction with %d invalid blocks", victim, victim->nr_invalid_blocks);
+		return victim;
+	}
+	dmz_dev_info(
+		dmzap->dev,
+		"No block has been selected for eviction, all lists are empty!");
+	return NULL;
+}
+
+/*
+ * Selecting the zone, that will be freed. Constant time cost-benefit victim selection
+ */
+struct dmzap_zone *dmzap_const_cb_victim_selection(struct dmzap_target *dmzap)
+{
+	struct dmzap_zone *victim = &dmzap->dmzap_zones[0];
+	int i = 0;
+	int max_invalid_blocks = 0;
+	long long max_benefit = -1;
+	long long current_benefit;
+	struct dmzap_zone *current_victim = NULL;
+
+	for (i = dmzap->dev->zone_nr_blocks/4; i > 0; i--) {
+		if (list_empty(&dmzap->num_invalid_blocks_lists[i])) {
+			continue;
+		}
+		victim = list_first_entry(&dmzap->num_invalid_blocks_lists[i],
+					  struct dmzap_zone,
+					  num_invalid_blocks_link);
+		// BUG_ON(victim->zone->cond != BLK_ZONE_COND_CLOSED &&
+		//        victim->zone->cond != BLK_ZONE_COND_FULL);
+		current_benefit = dmzap_calc_cb_value(dmzap, victim, jiffies);
+		if (current_benefit > max_benefit) {
+			max_benefit = current_benefit;
+			current_victim = victim;
+		}
+	}
+	// dmz_dev_debug(
+	// 	dmzap->dev,
+	// 	"Zone %u has been selected for eviction, all lists are empty!",
+	// 	current_victim ? current_victim->seq : -1);
+	list_del(&current_victim->num_invalid_blocks_link);
+	return current_victim;
+}
+
+/*
  * Copy valid blocks of victim_zone into free zone.
  */
 void dmzap_copy_valid_data(struct dmzap_target *dmzap,
@@ -836,7 +934,11 @@ static int dmzap_do_reclaim(struct dmzap_target *dmzap)
       victim = dmzap_fast_cb_victim_selection(dmzap);
     } else if (dmzap->victim_selection_method == DMZAP_APPROX_CB) {
 			victim = dmzap_approx_cb_victim_selection(dmzap);
-		}
+		} else if (dmzap->victim_selection_method == DMZAP_CONST_GREEDY) {
+		victim = dmzap_const_greedy_victim_selection(dmzap);
+    } else if (dmzap->victim_selection_method == DMZAP_CONST_CB) {
+      victim = dmzap_const_cb_victim_selection(dmzap);
+    }
 
     if (victim) {
 			trace_printk("Victim selected in %d ms, with %d invlaid blocks. Free zones: %lu. vsm: %u, dev_c: %lld\n",
@@ -951,7 +1053,7 @@ static void dmzap_reclaim_work(struct work_struct *work)
 int dmzap_ctr_reclaim(struct dmzap_target *dmzap)
 {
   struct dmzap_reclaim *reclaim;
-  int ret = 0;
+  int ret = 0, i = 0;
 
   dmzap->reclaim = kzalloc(sizeof(struct dmzap_reclaim), GFP_KERNEL);
   if (!dmzap->reclaim)
@@ -990,6 +1092,16 @@ int dmzap_ctr_reclaim(struct dmzap_target *dmzap)
 	if (!reclaim->wq) {
 		ret = -ENOMEM;
 		goto err;
+
+	}
+  if (dmzap->victim_selection_method == DMZAP_CONST_GREEDY || dmzap->victim_selection_method == DMZAP_CONST_CB){
+		dmzap->num_invalid_blocks_lists = kzalloc(sizeof(struct list_head)* (dmzap->dev->zone_nr_sectors + 1), GFP_KERNEL);
+		dmz_dev_debug(dmzap->dev, "Allocated %llu lists for constant time reclaims", (dmzap->dev->zone_nr_sectors + 1));
+
+		for(i=0; i <= dmzap->dev->zone_nr_sectors;i++){
+			INIT_LIST_HEAD(&dmzap->num_invalid_blocks_lists[i]);
+		}
+		dmz_dev_debug(dmzap->dev, "Initialized %llu lists for constant time reclaims", (dmzap->dev->zone_nr_sectors + 1));
 	}
 
 	queue_delayed_work(reclaim->wq, &reclaim->work, 0);
