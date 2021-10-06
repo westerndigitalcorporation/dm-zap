@@ -41,6 +41,30 @@ void dmzap_update_seq_wp(struct dmzap_target *dmzap, sector_t bio_sectors)
 			//dmz_dev_debug(dmzap->dev, "Added zone %u to list %d for cb", dmzap->dmzap_zone_wp, dmzap->dmzap_zones[dmzap->dmzap_zone_wp].nr_invalid_blocks);
 		}
 
+		if(dmzap->victim_selection_method == DMZAP_FEGC){
+			// for (j=0;j < dmzap->dev->zone_nr_blocks;j++){
+			//	 sum += dmzap->fegc_heaps[j].size;
+			// }
+			// dmzap->dmzap_zones[dmzap->dmzap_zone_wp].cwa = 0;
+			// dmzap->dmzap_zones[dmzap->dmzap_zone_wp].cwa_time = 0;
+			// if (dmzap->dmzap_zones[dmzap->dmzap_zone_wp].nr_invalid_blocks > 256 || dmzap->dmzap_zones[dmzap->dmzap_zone_wp].nr_invalid_blocks < 0){
+			// 	dmz_dev_info(dmzap->dev, "dmzap->dmzap_zone_wp: %u, mzap->dmzap_zones[dmzap->dmzap_zone_wp]: %u, invalids: %d", dmzap->dmzap_zone_wp, dmzap->dmzap_zones[dmzap->dmzap_zone_wp].seq, dmzap->dmzap_zones[dmzap->dmzap_zone_wp].nr_invalid_blocks);
+			// }
+			dmzap_heap_insert(dmzap->fegc_heaps[dmzap->dmzap_zones[dmzap->dmzap_zone_wp].nr_invalid_blocks], &dmzap->dmzap_zones[dmzap->dmzap_zone_wp]);
+			//dmz_dev_info(dmzap->dev, "After inserting zone %u to heap %d in wp", dmzap->dmzap_zones[dmzap->dmzap_zone_wp].seq, dmzap->dmzap_zones[dmzap->dmzap_zone_wp].nr_invalid_blocks);
+			// if (!heaps_are_ok(dmzap)){
+				
+			// 	heap_print(dmzap, dmzap->dmzap_zones[dmzap->dmzap_zone_wp].nr_invalid_blocks);
+			// 	BUG();
+			// }
+			// assert_heap_ok(dmzap, 1);
+			//dmz_dev_debug(dmzap->dev, "Added zone %u to heap %px for FeGC", dmzap->dmzap_zone_wp, &dmzap->fegc_heaps[dmzap->dmzap_zones[dmzap->dmzap_zone_wp].nr_invalid_blocks]);
+
+		}
+		if(dmzap->victim_selection_method == DMZAP_FAGCPLUS){
+			dmzap_heap_insert(&dmzap->fagc_heap, &dmzap->dmzap_zones[dmzap->dmzap_zone_wp]);
+		}
+		
 		/* Find new zone to write to*/
 		for (i = 1; i < dmzap->nr_internal_zones; i++) {
 			current_zone = (i + dmzap->dmzap_zone_wp) % dmzap->nr_internal_zones;

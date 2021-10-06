@@ -31,6 +31,10 @@
  */
 #define DMZAP_CLASS_0_DELTA_PERIOD	(2 * HZ)
 
+#define DEF_HEAP_SIZE 1000
+
+#define HEAP_SIZE_SHRINK (DEF_HEAP_SIZE/2 - DEF_HEAP_SIZE/10)
+
 /*
  * dm-zap internal zone types
  */
@@ -74,6 +78,14 @@ struct dmzap_zone {
 	/* CostBenefit value */
 	long long cb;
 
+	/* FeGC */
+	unsigned int fegc_heap_pos;
+	unsigned long long cwa;
+	unsigned long long cwa_time;
+
+	/* FaGC+ */
+	unsigned long long cps;
+
 	struct list_head	num_invalid_blocks_link;
 	//struct list_head	cb_l
 
@@ -81,6 +93,15 @@ struct dmzap_zone {
 	struct rb_node		node;
 	int reclaim_class;
 	struct mutex reclaim_class_lock;
+
+	struct mutex lock;
+};
+
+struct dmzap_fegc_heap{
+	unsigned int max_size;
+	unsigned int size;
+	struct dmzap_zone **data;
+	struct mutex lock;
 };
 
 /* Zone metadata */
@@ -145,6 +166,8 @@ enum {
 	DMZAP_APPROX_CB,
 	DMZAP_CONST_GREEDY,
 	DMZAP_CONST_CB,
+	DMZAP_FEGC,
+	DMZAP_FAGCPLUS,
 	DMZAP_VICTIM_POLICY_MAX
 
 };
@@ -246,6 +269,14 @@ struct dmzap_target {
 
 	spinlock_t debug_lock;
 	unsigned long		flags; //TODO maybe not needed. -> used for wait_on_bit_io to wait for reclaim before writing.
+
+	struct dmzap_fegc_heap **fegc_heaps;
+
+	unsigned int *fagc_cps;
+	u64 current_write_num;
+	struct dmzap_fegc_heap fagc_heap;
+	struct mutex *user_zone_locks;
+
 };
 
 /*
@@ -357,3 +388,18 @@ void dmzap_assign_zone_to_reclaim_class(struct dmzap_target *dmzap,
 
 //do not have it public
 int dmzap_free_victim (struct dmzap_target *dmzap, struct dmzap_zone *victim);
+
+/* dm-zap-heap.c */
+void dmzap_heap_insert(struct dmzap_fegc_heap *heap, struct dmzap_zone *zone);
+struct dmzap_zone* dmzap_heap_delete(struct dmzap_fegc_heap *heap, struct dmzap_zone *pos);
+void dmzap_fegc_heap_init(struct dmzap_fegc_heap *heap);
+void assert_heap_ok(struct dmzap_target *dmzap, int num);
+extern struct dmzap_target* dmzap_ptr;
+bool heap_is_ok(struct dmzap_target *dmzap, int heap_num);
+void heap_print(struct dmzap_target *dmzap, int heap_num);
+extern void dmzap_heap_update(struct dmzap_fegc_heap *heap, unsigned int pos);
+extern int dmzap_heap_increase_size(void *arg);
+extern void dmzap_heap_destroy(struct dmzap_fegc_heap *heap);
+extern unsigned long long updated_cwa(struct dmzap_zone *zone, u64 jiff);
+extern void assert_heap_is_ok(struct dmzap_target *dmzap, struct dmzap_fegc_heap *heap);
+extern struct mutex heap_increase_lock;

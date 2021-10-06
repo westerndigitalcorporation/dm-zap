@@ -19,6 +19,7 @@
 
 static struct kobject *zap_stat_kobject;
 struct dmzap_target* dmzap_ptr;
+struct mutex heap_increase_lock;
 
 static ssize_t reset_zap_stats(struct kobject *kobj, struct kobj_attribute *attr,
                       const char *buf, size_t count)
@@ -855,6 +856,8 @@ static int dmzap_ctr(struct dm_target *ti, unsigned int argc, char **argv)
         if (error) {
                 pr_debug("failed to create the reset_stats file in /sys/kernel/zap \n");
         }
+
+	mutex_init(&heap_increase_lock);
 
 	return 0;
 

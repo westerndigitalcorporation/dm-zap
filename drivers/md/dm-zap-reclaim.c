@@ -264,6 +264,7 @@ int dmzap_invalidate_blocks(struct dmzap_target *dmzap,
   long long cb;
 	int zone_reclaim_class = -1;
 	unsigned long flags;
+  u64 start_ns;
 
   if(dmzap->show_debug_msg){
     dmz_dev_debug(dmzap->dev, "Invalidate backing_block %llu, %u blocks",
@@ -280,19 +281,31 @@ int dmzap_invalidate_blocks(struct dmzap_target *dmzap,
       current_zone->nr_invalid_blocks++;
 			currentTime = jiffies;
 			current_zone->zone_age = currentTime;
-    if (current_zone->zone->cond == BLK_ZONE_COND_FULL &&  (dmzap->victim_selection_method == DMZAP_CONST_GREEDY || dmzap->victim_selection_method == DMZAP_CONST_CB)){
-          //dmz_dev_debug(dmzap->dev, "Updating constant time lists for zone %u with %d invalid blocks", current_zone->seq, current_zone->nr_invalid_blocks);
+      if (dmzap->victim_selection_method == DMZAP_FAGCPLUS) {
+				start_ns = ktime_get_ns();
+				current_zone->cps += dmzap->current_write_num - dmzap->fagc_cps[current_block];
+				if (current_zone->zone->cond == BLK_ZONE_COND_FULL){
+					//dmz_dev_info(dmzap->dev, "zone: %lu", current_zone->seq);
+					dmzap_heap_update(&dmzap->fagc_heap, current_zone->fegc_heap_pos);
+				}
+				dmzap->fagc_cps[current_block] = dmzap->current_write_num;
+				// dmzap->gc_process_time +=  ktime_get_ns() - start_ns;
+				// dmzap->gc_process_count++;
+			}
 
-          // list_for_each_entry(zone_iterator, &(dmzap->num_invalid_blocks_lists[current_zone->nr_invalid_blocks-1]), num_invalid_blocks_link){
-          // 	if (zone_iterator == current_zone){
-          // 		found = true;
-          // 		break;
-          // 	}
-          // }
-          // BUG_ON(!found);
-          list_del(&(current_zone->num_invalid_blocks_link));
-          list_add_tail(&(current_zone->num_invalid_blocks_link), &(dmzap->num_invalid_blocks_lists[current_zone->nr_invalid_blocks]));
-    }
+      if (current_zone->zone->cond == BLK_ZONE_COND_FULL &&  (dmzap->victim_selection_method == DMZAP_CONST_GREEDY || dmzap->victim_selection_method == DMZAP_CONST_CB)){
+            //dmz_dev_debug(dmzap->dev, "Updating constant time lists for zone %u with %d invalid blocks", current_zone->seq, current_zone->nr_invalid_blocks);
+
+            // list_for_each_entry(zone_iterator, &(dmzap->num_invalid_blocks_lists[current_zone->nr_invalid_blocks-1]), num_invalid_blocks_link){
+            // 	if (zone_iterator == current_zone){
+            // 		found = true;
+            // 		break;
+            // 	}
+            // }
+            // BUG_ON(!found);
+            list_del(&(current_zone->num_invalid_blocks_link));
+            list_add_tail(&(current_zone->num_invalid_blocks_link), &(dmzap->num_invalid_blocks_lists[current_zone->nr_invalid_blocks]));
+      }
 
       if (current_zone->zone->cond == BLK_ZONE_COND_FULL &&
             dmzap->victim_selection_method == DMZAP_FAST_CB) {
@@ -350,7 +363,7 @@ int dmzap_validate_blocks(struct dmzap_target *dmzap,
 	struct dmzap_zone *zone_iterator;
 	struct dmzap_zone *current_zone;
 	bool found = false;
-  
+
   if(dmzap->show_debug_msg){
     dmz_dev_debug(dmzap->dev, "Validate backing_block %llu, %u blocks",
             (u64)backing_block, nr_blocks);
@@ -670,6 +683,101 @@ struct dmzap_zone * dmzap_victim_selection(struct dmzap_target *dmzap)
 }
 
 /*
+ * Selecting the zone, that will be freed. FeGC selection
+ */
+struct dmzap_zone *dmzap_fegc_victim_selection(struct dmzap_target *dmzap)
+{
+	struct dmzap_zone *victim = NULL;
+	int i = 0, j = 0, bug_found = 0;
+	int max_invalid_blocks = 0;
+	unsigned long long victim_cwa = 0;
+	struct dmzap_fegc_heap *victim_heap = NULL;
+	int heap_index = -1;
+	int tmp = 0;
+	u64 jiff = jiffies;
+	for (i = dmzap->dev->zone_nr_blocks; i > 0; i--) {
+		if (dmzap->fegc_heaps[i]->size == 0) {
+			continue;
+		}
+		// if (dmzap->fegc_heaps[i]->size > (9*dmzap->fegc_heaps[i]->max_size)/10){
+		// 	dmzap_heap_increase_size(dmzap->fegc_heaps[i]);
+		// }
+		// dmz_dev_debug(dmzap->dev,
+		// 	      "Searching heap %d [%px] with cwa: %llu, seq: %u",
+		// 	      i, &dmzap->fegc_heaps[i],
+		// 	      dmzap->fegc_heaps[i].data[1]->cwa,
+		// 	      dmzap->fegc_heaps[i].data[1]->seq);
+		if (updated_cwa(dmzap->fegc_heaps[i]->data[1], jiff) > victim_cwa) {
+			victim = dmzap->fegc_heaps[i]->data[1];
+			victim_cwa = updated_cwa(victim, jiff);
+			victim_heap = dmzap->fegc_heaps[i];
+			heap_index = i;
+		}
+
+		
+	}
+	//dmz_dev_info(dmzap->dev, "Selected zone %u for eviction with %d invalid blocks from: %px", victim->seq, victim->nr_invalid_blocks, victim_heap);
+    //assert_heap_ok(dmzap, 6);
+    if (victim == NULL){
+	//     for (i = dmzap->dev->zone_nr_blocks; i > 0; i--) {
+	//     	dmz_dev_info(dmzap->dev, "Heap: %d: size: %u", i, dmzap->fegc_heaps[i]->size);
+	//     }
+	return victim;
+    }
+	BUG_ON(victim == NULL);
+
+//     for (i = 1; i <= dmzap->fegc_heaps[heap_index].size; i++) {
+// 		dmz_dev_info(dmzap->dev, "Heap: %d, item %i, seq: %u, cwa: %llu", heap_index, i, dmzap->fegc_heaps[heap_index].data[i]->seq, dmzap->fegc_heaps[heap_index].data[i]->cwa);
+// 	}
+
+	dmzap_heap_delete(victim_heap, victim_heap->data[1]);
+// 	dmz_dev_info(dmzap->dev, "New head: %u, victim: %u",  dmzap->fegc_heaps[heap_index].data[1]->seq, victim->seq);
+//     for (i = 1; i <= dmzap->fegc_heaps[heap_index].size; i++) {
+// 		dmz_dev_debug(dmzap->dev, "Heap: %d, item %i, seq: %u, cwa: %llu", heap_index, i, dmzap->fegc_heaps[heap_index].data[i]->seq, dmzap->fegc_heaps[heap_index].data[i]->cwa);
+// 	}
+// 	if (!heaps_are_ok(dmzap)){
+// 		dmz_dev_info(dmzap->dev, "After deleting zone %u to heap %d", victim->seq, heap_index);
+// 		heap_print(dmzap, heap_index);
+// 		BUG();
+// 	}
+//     assert_heap_ok(dmzap, 5);
+
+	// dmz_dev_debug(
+	// 	dmzap->dev,
+	// 	"Selected zone %u for eviction with %d invalid blocks from heap %d",
+	// 	victim->seq, victim->nr_invalid_blocks, heap_index);
+
+	
+
+	victim->cwa = 0;
+	victim->cwa_time = 0;
+	//dmzap->nr_user_written_sec = 0; 
+	return victim;
+}
+
+/*
+ * Selecting the zone, that will be freed. FaGC+ selection
+ */
+struct dmzap_zone *dmzap_fagcplus_victim_selection(struct dmzap_target *dmzap)
+{
+	struct dmzap_zone *victim = NULL;
+	int i = 0, j = 0, bug_found = 0;
+	int max_invalid_blocks = 0;
+	unsigned long long victim_cwa = 0;
+	int tmp = 0;
+	u64 jiff = jiffies;
+	
+	victim = dmzap->fagc_heap.data[1];
+
+	dmzap_heap_delete(&dmzap->fagc_heap, victim);
+
+	victim->cps = 0;
+	victim->fegc_heap_pos = -1;
+	//dmz_dev_info(dmzap->dev, "victim: %lu", victim->seq);
+	return victim;
+}
+
+/*
  * Selecting the zone, that will be freed. Constant time greedy victim selection
  */
 struct dmzap_zone *
@@ -938,6 +1046,10 @@ static int dmzap_do_reclaim(struct dmzap_target *dmzap)
 		victim = dmzap_const_greedy_victim_selection(dmzap);
     } else if (dmzap->victim_selection_method == DMZAP_CONST_CB) {
       victim = dmzap_const_cb_victim_selection(dmzap);
+    } else if (dmzap->victim_selection_method == DMZAP_FEGC) {
+		victim = dmzap_fegc_victim_selection(dmzap);
+    } else if (dmzap->victim_selection_method == DMZAP_FAGCPLUS) {
+      victim = dmzap_fagcplus_victim_selection(dmzap);
     }
 
     if (victim) {
@@ -1104,6 +1216,31 @@ int dmzap_ctr_reclaim(struct dmzap_target *dmzap)
 		dmz_dev_debug(dmzap->dev, "Initialized %llu lists for constant time reclaims", (dmzap->dev->zone_nr_sectors + 1));
 	}
 
+  if (dmzap->victim_selection_method == DMZAP_FEGC) {
+		dmzap->fegc_heaps =	kzalloc(sizeof(struct dmzap_fegc_heap*) *	(dmzap->dev->zone_nr_blocks + 1),	GFP_KERNEL);
+
+		dmz_dev_info(dmzap->dev,
+			      "Allocated %llu heaps for FeGC reclaim",
+			      (dmzap->dev->zone_nr_blocks + 1));
+
+		// dmzap->fegc_heaps[0] = kzalloc(sizeof(struct dmzap_fegc_heap), GFP_KERNEL);
+		// dmzap_fegc_heap_init(dmzap->fegc_heaps[0]);
+		for (i = 0; i <= dmzap->dev->zone_nr_blocks; i++) {
+			dmzap->fegc_heaps[i] = kzalloc(sizeof(struct dmzap_fegc_heap), GFP_KERNEL);
+			dmzap_fegc_heap_init(dmzap->fegc_heaps[i]);
+			//dmzap->fegc_heaps[i] = dmzap->fegc_heaps[0];
+		}
+		dmz_dev_info(dmzap->dev,
+			      "Initialized %llu heaps for FeGC reclaim",
+			      (dmzap->dev->zone_nr_blocks + 1));
+	}
+
+	if (dmzap->victim_selection_method == DMZAP_FAGCPLUS) {
+		dmzap->fagc_cps = vzalloc(sizeof(unsigned int)*dmzap->nr_internal_zones*dmzap->dev->zone_nr_blocks);
+		dmz_dev_info(dmzap->dev, "Initialized %llu cps for FaGC+ reclaim", (dmzap->nr_internal_zones*dmzap->dev->zone_nr_blocks));
+		dmzap_fegc_heap_init(&dmzap->fagc_heap);
+	}
+
 	queue_delayed_work(reclaim->wq, &reclaim->work, 0);
 
   reclaim->dmzap = dmzap;
@@ -1132,6 +1269,28 @@ err_reclaim:
  */
 void dmzap_dtr_reclaim(struct dmzap_target *dmzap)
 {
+  int i;
+
+  if (dmzap->victim_selection_method == DMZAP_FEGC) {
+		for (i = 0; i <= dmzap->dev->zone_nr_blocks; i++) {
+			dmzap_heap_destroy(dmzap->fegc_heaps[i]);
+			kfree(dmzap->fegc_heaps[i]);
+		}
+
+		kfree(dmzap->fegc_heaps);
+
+		dmz_dev_info(dmzap->dev,
+			      "Deallocated %llu heaps for FeGC reclaim",
+			      (dmzap->dev->zone_nr_blocks + 1));
+	}
+
+	if (dmzap->victim_selection_method == DMZAP_FAGCPLUS) {
+		vfree(dmzap->fagc_cps);
+		
+		dmzap_heap_destroy(&dmzap->fagc_heap);
+		dmz_dev_info(dmzap->dev, "Deallocated %llu cps for FaGC+ reclaim", (dmzap->nr_internal_zones*dmzap->dev->zone_nr_blocks));
+	}
+
   cancel_delayed_work_sync(&dmzap->reclaim->work);
   destroy_workqueue(dmzap->reclaim->wq);
   dm_kcopyd_client_destroy(dmzap->reclaim->kc);
