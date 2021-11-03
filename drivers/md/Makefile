@@ -30,14 +30,14 @@ dm-zoned-y	+= dm-zoned-target.o dm-zoned-metadata.o dm-zoned-reclaim.o
 md-mod-y	+= md.o md-bitmap.o
 raid456-y	+= raid5.o raid5-cache.o raid5-ppl.o
 dm-zoned-y	+= dm-zoned-target.o dm-zoned-metadata.o dm-zoned-reclaim.o
-dm-zap-y	+= dm-zap-target.o dm-zap-map.o dm-zap-conv-io.o
+dm-zap-y	+= dm-zap-target.o dm-zap-map.o dm-zap-conv-io.o dm-zap-reclaim.o
 linear-y	+= md-linear.o
 multipath-y	+= md-multipath.o
 faulty-y	+= md-faulty.o
 
 # Note: link order is important.  All raid personalities
-# and must come before md.o, as they each initialise 
-# themselves, and md.o may use the personalities when it 
+# and must come before md.o, as they each initialise
+# themselves, and md.o may use the personalities when it
 # auto-initialised.
 
 obj-$(CONFIG_MD_LINEAR)		+= linear.o

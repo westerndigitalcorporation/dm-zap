@@ -14,7 +14,7 @@ available at: TBD
 Design
 ======
 
-dm-zap is designed to be a low-overhead(disk/host mem usage) adaptor to enable
+dm-zap is designed to be a low-overhead(disk/host mem usage) adapter to enable
 file systems and applications to store a limited amount of data in an area that
 allows random writes.
 
@@ -24,7 +24,7 @@ Disk format
 Zones 0..1:    Reserved for superblock storage and for
                persisting mapping data for data in open zones
 
-Zones 2..R:    Zones used for storing random writes
+Zones 2..R-1:  Zones used for storing random writes
 
 Zones R..N-1:  Zones used for storing sequential writes
                Writes to this area are just remapped and
@@ -51,7 +51,7 @@ Zone 3    Rand    |HDDDDDDDDDDDDDDDDDDDDDD|  Active ZAP_RAND zone
 Zone ..   Rand    |.......................|  Full ZAP_RAND zone
                   |.......................|
                    -----------------------
-Zone R    Rand    |HDDDDDDDDDDDDDDDDDDDDDD|  Full ZAP_RAND zone
+Zone R-1  Rand    |HDDDDDDDDDDDDDDDDDDDDDD|  Full ZAP_RAND zone
                   |DDDDDDDDDDDDDDDDDDMMMMF|
                    -----------------------
 Zone R    Seq     |DDDDDDDDDDDDDDDDDDDDDDD|  Full user sequential data zone
@@ -73,7 +73,7 @@ Ledgend: M = Mapping data, H = Zone header, F = Zone footer D = User data
 Metadata
 ========
 
-A zone header is stored att offset 0 of all zones that are managed by dm-zap.
+A zone header is stored at offset 0 of all zones that are managed by dm-zap.
 A zone footer is stored for all random zones.
 
 The header and footers are stored as one dm-zap block (4k).
@@ -166,5 +166,3 @@ echo "0 `blockdev --getsize ${dev}` zap ${dev}" | dmsetup create dmzap-`basename
 
 This will result in a disk exposing 8 conventional zones with the same size
 as the disk's sequential write required zones.
-
-
