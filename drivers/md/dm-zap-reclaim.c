@@ -23,7 +23,7 @@ static void dmzap_reclaim_kcopy_end(int read_err, unsigned long write_err,
  */
 unsigned int dmzap_block2zone_id(struct dmzap_target *dmzap, sector_t block)
 {
-  return ((unsigned int) (block / dmzap->dev->zone_nr_blocks));
+  return ((unsigned int) (block / dmz_sect2blk(dmzap->dev->zone_nr_sectors)));
 }
 
 void dmzap_calc_p_free_zone(struct dmzap_target *dmzap)
@@ -54,7 +54,7 @@ static void dmzap_calc_shift_time(struct dmzap_target *dmzap,
 {
   int scale_factor = DMZAP_CB_SCALE_FACTOR;
   int nr_invalid_blocks = zone->nr_invalid_blocks;
-  int nr_valid_blocks = dmzap->dev->zone_nr_blocks - nr_invalid_blocks; //TODO ZNS capacity: int nr_valid_blocks = dmz_sect2blk(victim->zone->capacity) - nr_invalid_blocks;
+  int nr_valid_blocks = dmz_sect2blk(dmzap->dev->zone_nr_sectors) - nr_invalid_blocks; //TODO ZNS capacity: int nr_valid_blocks = dmz_sect2blk(victim->zone->capacity) - nr_invalid_blocks;
 
   if(cb >= dmzap->threshold_cb){
     zone->shift_time = currentTime;
@@ -271,7 +271,7 @@ int dmzap_invalidate_blocks(struct dmzap_target *dmzap,
             (u64)backing_block, nr_blocks);
   }
 
-  WARN_ON(backing_block + nr_blocks > dmzap->dev->zone_nr_blocks * dmzap->dev->nr_zones);
+  WARN_ON(backing_block + nr_blocks > dmz_sect2blk(dmzap->dev->zone_nr_sectors) * dmzap->dev->nr_zones);
 
   while (nr_blocks) {
     current_block = backing_block + (nr_blocks-1);
@@ -369,7 +369,7 @@ int dmzap_validate_blocks(struct dmzap_target *dmzap,
             (u64)backing_block, nr_blocks);
   }
 
-  WARN_ON(backing_block + nr_blocks > dmzap->dev->zone_nr_blocks * dmzap->dev->nr_zones);
+  WARN_ON(backing_block + nr_blocks > dmz_sect2blk(dmzap->dev->zone_nr_sectors) * dmzap->dev->nr_zones);
 
   while (nr_blocks) {
     current_block = backing_block + (nr_blocks-1);
@@ -409,7 +409,7 @@ long long dmzap_calc_cb_value(struct dmzap_target *dmzap,
   int scale_factor = DMZAP_CB_SCALE_FACTOR;
   unsigned long ab = currentTime - zone->zone_age;
   int nr_invalid_blocks = zone->nr_invalid_blocks;
-  int nr_valid_blocks = dmzap->dev->zone_nr_blocks - nr_invalid_blocks; //TODO ZNS capacity: int nr_valid_blocks = dmz_sect2blk(victim->zone->capacity) - nr_invalid_blocks;
+  int nr_valid_blocks = dmz_sect2blk(dmzap->dev->zone_nr_sectors) - nr_invalid_blocks; //TODO ZNS capacity: int nr_valid_blocks = dmz_sect2blk(victim->zone->capacity) - nr_invalid_blocks;
 	/* Do not devide by zero */
 	if (nr_valid_blocks == 0){
 		cb =  ab * (nr_invalid_blocks) * scale_factor;
@@ -695,7 +695,7 @@ struct dmzap_zone *dmzap_fegc_victim_selection(struct dmzap_target *dmzap)
 	int heap_index = -1;
 	int tmp = 0;
 	u64 jiff = jiffies;
-	for (i = dmzap->dev->zone_nr_blocks; i > 0; i--) {
+	for (i = dmz_sect2blk(dmzap->dev->zone_nr_sectors); i > 0; i--) {
 		if (dmzap->fegc_heaps[i]->size == 0) {
 			continue;
 		}
@@ -787,7 +787,7 @@ dmzap_const_greedy_victim_selection(struct dmzap_target *dmzap)
 	int i = 0;
 	int max_invalid_blocks = 0;
 
-	for (i = dmzap->dev->zone_nr_blocks; i > 0; i--) {
+	for (i = dmz_sect2blk(dmzap->dev->zone_nr_sectors); i > 0; i--) {
 		if (list_empty(&dmzap->num_invalid_blocks_lists[i])) {
 			continue;
 		}
@@ -818,7 +818,7 @@ struct dmzap_zone *dmzap_const_cb_victim_selection(struct dmzap_target *dmzap)
 	long long current_benefit;
 	struct dmzap_zone *current_victim = NULL;
 
-	for (i = dmzap->dev->zone_nr_blocks/4; i > 0; i--) {
+	for (i = dmz_sect2blk(dmzap->dev->zone_nr_sectors)/4; i > 0; i--) {
 		if (list_empty(&dmzap->num_invalid_blocks_lists[i])) {
 			continue;
 		}
@@ -857,7 +857,7 @@ void dmzap_copy_valid_data(struct dmzap_target *dmzap,
   sector_t nr_chunk_blocks = 0;
   sector_t i = 0;
   __u64 fresh_zone_block_length = 0;
-	sector_t zone_block_length = dmzap->dev->zone_nr_blocks; //TODO ZNS capacity: sector_t zone_block_length = dmz_sect2blk(victim->zone->capacity);
+  sector_t zone_block_length = dmz_sect2blk(dmzap->dev->zone_nr_sectors); //TODO ZNS capacity: sector_t zone_block_length = dmz_sect2blk(victim->zone->capacity);
 
   /* We can only have one outstanding write at a time */
 	while(test_and_set_bit_lock(DMZAP_WR_OUTSTANDING,
@@ -1012,7 +1012,7 @@ int dmzap_free_victim (struct dmzap_target *dmzap, struct dmzap_zone *victim)
 
   victim->zone_age = jiffies;
 
-  dmzap_validate_blocks(dmzap, victim_start_block, dmzap->dev->zone_nr_blocks);
+  dmzap_validate_blocks(dmzap, victim_start_block, dmz_sect2blk(dmzap->dev->zone_nr_sectors));
   dmzap_unmap_zone_entries(dmzap, victim);
 	dmzap->reclaim->nr_free_zones++;
 	dmzap_calc_p_free_zone(dmzap);
@@ -1063,7 +1063,7 @@ static int dmzap_do_reclaim(struct dmzap_target *dmzap)
       	dmz_dev_debug(dmzap->dev, "About to free victim zone %d, with %d invalid blocks (%lld valid blocks).",
 					victim->seq,
 					victim->nr_invalid_blocks,
-					dmzap->dev->zone_nr_blocks - victim->nr_invalid_blocks);
+					dmz_sect2blk(dmzap->dev->zone_nr_sectors) - victim->nr_invalid_blocks);
 			nr_invalid_blocks = victim->nr_invalid_blocks;
 			dmzap_copy_valid_data(dmzap, victim);
       dmzap_free_victim(dmzap, victim);
@@ -1111,7 +1111,7 @@ static bool dmzap_should_reclaim(struct dmzap_target *dmzap)
 static void dmzap_reclaim_work(struct work_struct *work)
 {
 	struct dmzap_reclaim *reclaim = container_of(work, struct dmzap_reclaim, work.work);
-  struct dmzap_target *dmzap = reclaim->dmzap;
+    struct dmzap_target *dmzap = reclaim->dmzap;
 	int ret;
 
 	if (dmzap_bdev_is_dying(dmzap->dev))
@@ -1217,27 +1217,27 @@ int dmzap_ctr_reclaim(struct dmzap_target *dmzap)
 	}
 
   if (dmzap->victim_selection_method == DMZAP_FEGC) {
-		dmzap->fegc_heaps =	kzalloc(sizeof(struct dmzap_fegc_heap*) *	(dmzap->dev->zone_nr_blocks + 1),	GFP_KERNEL);
+		dmzap->fegc_heaps =	kzalloc(sizeof(struct dmzap_fegc_heap*) *	(dmz_sect2blk(dmzap->dev->zone_nr_sectors) + 1),	GFP_KERNEL);
 
 		dmz_dev_info(dmzap->dev,
 			      "Allocated %llu heaps for FeGC reclaim",
-			      (dmzap->dev->zone_nr_blocks + 1));
+			      (dmz_sect2blk(dmzap->dev->zone_nr_sectors) + 1));
 
 		// dmzap->fegc_heaps[0] = kzalloc(sizeof(struct dmzap_fegc_heap), GFP_KERNEL);
 		// dmzap_fegc_heap_init(dmzap->fegc_heaps[0]);
-		for (i = 0; i <= dmzap->dev->zone_nr_blocks; i++) {
+		for (i = 0; i <= dmz_sect2blk(dmzap->dev->zone_nr_sectors); i++) {
 			dmzap->fegc_heaps[i] = kzalloc(sizeof(struct dmzap_fegc_heap), GFP_KERNEL);
 			dmzap_fegc_heap_init(dmzap->fegc_heaps[i]);
 			//dmzap->fegc_heaps[i] = dmzap->fegc_heaps[0];
 		}
 		dmz_dev_info(dmzap->dev,
 			      "Initialized %llu heaps for FeGC reclaim",
-			      (dmzap->dev->zone_nr_blocks + 1));
+			      (dmz_sect2blk(dmzap->dev->zone_nr_sectors) + 1));
 	}
 
 	if (dmzap->victim_selection_method == DMZAP_FAGCPLUS) {
-		dmzap->fagc_cps = vzalloc(sizeof(unsigned int)*dmzap->nr_internal_zones*dmzap->dev->zone_nr_blocks);
-		dmz_dev_info(dmzap->dev, "Initialized %llu cps for FaGC+ reclaim", (dmzap->nr_internal_zones*dmzap->dev->zone_nr_blocks));
+		dmzap->fagc_cps = vzalloc(sizeof(unsigned int)*dmzap->nr_internal_zones*dmz_sect2blk(dmzap->dev->zone_nr_sectors));
+		dmz_dev_info(dmzap->dev, "Initialized %llu cps for FaGC+ reclaim", (dmzap->nr_internal_zones*dmz_sect2blk(dmzap->dev->zone_nr_sectors)));
 		dmzap_fegc_heap_init(&dmzap->fagc_heap);
 	}
 
@@ -1272,7 +1272,7 @@ void dmzap_dtr_reclaim(struct dmzap_target *dmzap)
   int i;
 
   if (dmzap->victim_selection_method == DMZAP_FEGC) {
-		for (i = 0; i <= dmzap->dev->zone_nr_blocks; i++) {
+		for (i = 0; i <= dmz_sect2blk(dmzap->dev->zone_nr_sectors); i++) {
 			dmzap_heap_destroy(dmzap->fegc_heaps[i]);
 			kfree(dmzap->fegc_heaps[i]);
 		}
@@ -1281,14 +1281,14 @@ void dmzap_dtr_reclaim(struct dmzap_target *dmzap)
 
 		dmz_dev_info(dmzap->dev,
 			      "Deallocated %llu heaps for FeGC reclaim",
-			      (dmzap->dev->zone_nr_blocks + 1));
+			      (dmz_sect2blk(dmzap->dev->zone_nr_sectors) + 1));
 	}
 
 	if (dmzap->victim_selection_method == DMZAP_FAGCPLUS) {
 		vfree(dmzap->fagc_cps);
 		
 		dmzap_heap_destroy(&dmzap->fagc_heap);
-		dmz_dev_info(dmzap->dev, "Deallocated %llu cps for FaGC+ reclaim", (dmzap->nr_internal_zones*dmzap->dev->zone_nr_blocks));
+		dmz_dev_info(dmzap->dev, "Deallocated %llu cps for FaGC+ reclaim", (dmzap->nr_internal_zones*dmz_sect2blk(dmzap->dev->zone_nr_sectors)));
 	}
 
   cancel_delayed_work_sync(&dmzap->reclaim->work);

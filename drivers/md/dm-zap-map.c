@@ -30,7 +30,7 @@ int dmzap_map_init(struct dmzap_target *dmzap)
 		return -ENOMEM;
 	}
 
-	map->nr_total_blocks = dmzap->dev->zone_nr_blocks * dmzap->dev->nr_zones;
+	map->nr_total_blocks = dmz_sect2blk(dmzap->dev->zone_nr_sectors) * dmzap->dev->nr_zones;
 
 	map->invalid_device_block = kvmalloc_array(map->nr_total_blocks, sizeof(int), GFP_KERNEL | __GFP_ZERO);
 	if (!map->invalid_device_block){
@@ -265,7 +265,7 @@ void dmzap_unmap_zone_entries(struct dmzap_target *dmzap,
 	for(i = 0; i < dmzap->map.l2d_sz; i++){
     current_entry = dmzap->map.l2d[i];
     if( current_entry >= start_block
-      && current_entry < (start_block + dmzap->dev->zone_nr_blocks) ){
+      && current_entry < (start_block + dmz_sect2blk(dmzap->dev->zone_nr_sectors)) ){
 			dmzap->map.d2l[current_entry] = DMZAP_UNMAPPED; //TODO is getting much faster with that datastructure now
       dmzap->map.l2d[i] = DMZAP_UNMAPPED;
     }

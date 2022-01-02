@@ -362,6 +362,10 @@ struct dmzap_reclaim
  */
 #define DMZAP_WA_PERIOD		(5UL * HZ)
 
+#define dmzap_bio_chunk(dev, bio)	((bio)->bi_iter.bi_sector >> \
+				 ilog2((dev)->zone_nr_sectors))
+#define dmzap_chunk_block(dev, b)	((b) & (dmz_sect2blk((dev)->zone_nr_sectors) - 1))
+
 //TODO (IMPORTANT) use as much const parameters as possible
 /*
  * Functions defined in dm-zoned-reclaim.c

@@ -82,15 +82,16 @@ sector_t dmzap_get_seq_wp(struct dmzap_target *dmzap)
 static int dmzap_report_zones(struct dm_target *ti,
 		struct dm_report_zones_args *args, unsigned int nr_zones)
 {
-	struct dmzap_target *dmzap = ti->private;
-	struct dmz_dev *dev = dmzap->dev;
-	int ret;
+    // TODO: I commented this out for now
+	// struct dmzap_target *dmzap = ti->private;
+	// struct dmz_dev *dev = dmzap->dev;
+	// int ret;
 
-	args->start = 0;
-	ret = blkdev_report_zones(dev->bdev, 0, nr_zones,
-		dm_report_zones_cb, args);
-	if (ret != 0)
-		return ret;
+	// args->start = 0;
+	// ret = blkdev_report_zones(dev->bdev, 0, nr_zones,
+	// 	dm_report_zones_cb, args);
+	// if (ret != 0)
+	// 	return ret;
 
 	return 0;
 }
@@ -154,7 +155,7 @@ int dmzap_zones_init(struct dmzap_target *dmzap)
 		zone->len = dev->zone_nr_sectors;
 		zone->type = BLK_ZONE_TYPE_SEQWRITE_REQ;
 		zone->cond = BLK_ZONE_COND_EMPTY;
-		//zone->capacity = dev->zone_nr_sectors; //TODO ZNS capacity: the capacity of the backing zone has to be set individually ?
+		zone->capacity = dev->zone_nr_sectors; //TODO ZNS capacity: the capacity of the backing zone has to be set individually ?
 
 
 		dmzap->dmzap_zones[i].zone = zone;
@@ -248,8 +249,8 @@ int dmzap_geometry_init(struct dm_target *ti)
 	dmzap->nr_user_exposed_zones = dmzap->nr_internal_zones
 		- dmzap->nr_op_zones - dmzap->nr_meta_zones;
 
-	dmzap->capacity = dmzap->nr_user_exposed_zones << dev->zone_nr_sectors_shift;
-	dmzap->dev_capacity = dmzap->nr_internal_zones << dev->zone_nr_sectors_shift;
+	dmzap->capacity = dmzap->nr_user_exposed_zones << ilog2(dev->zone_nr_sectors);
+	dmzap->dev_capacity = dmzap->nr_internal_zones << ilog2(dev->zone_nr_sectors);
 
 	return 0;
 }
@@ -411,7 +412,7 @@ static void dmzap_flush_work(struct work_struct *work)
  */
 static int dmzap_queue_chunk_work(struct dmzap_target *dmzap, struct bio *bio)
 {
-	unsigned int chunk = dmz_bio_chunk(dmzap->dev, bio);
+	unsigned int chunk = dmzap_bio_chunk(dmzap->dev, bio);
 	struct dmzap_chunk_work *cw;
 	int ret = 0;
 
@@ -516,8 +517,8 @@ static int dmzap_map(struct dm_target *ti, struct bio *bio)
 	if(dmzap->show_debug_msg){
 		dmz_dev_debug(dev, "BIO op %d sector %llu + %u => chunk %llu, block %llu, %u blocks",
 						bio_op(bio), (unsigned long long)sector, nr_sectors,
-						(unsigned long long)dmz_bio_chunk(dev, bio),
-						(unsigned long long)dmz_chunk_block(dev, dmz_bio_block(bio)),
+						(unsigned long long)dmzap_bio_chunk(dev, bio),
+						(unsigned long long)dmzap_chunk_block(dev, dmz_bio_block(bio)),
 						(unsigned int)dmz_bio_blocks(bio));
 	}
 
@@ -552,7 +553,7 @@ static int dmzap_map(struct dm_target *ti, struct bio *bio)
 	if (ret) {
 		dmz_dev_debug(dev,
 			      "BIO op %d, can't process chunk %llu, err %i\n",
-			      bio_op(bio), (u64)dmz_bio_chunk(dev, bio),
+			      bio_op(bio), (u64)dmzap_bio_chunk(dev, bio),
 			      ret);
 		return DM_MAPIO_REQUEUE;
 	}
@@ -606,10 +607,10 @@ static int dmzap_get_zoned_device(struct dm_target *ti, char *path)
 	}
 
 	dev->zone_nr_sectors = blk_queue_zone_sectors(q);
-	dev->zone_nr_sectors_shift = ilog2(dev->zone_nr_sectors);
+	// dev->zone_nr_sectors_shift = ilog2(dev->zone_nr_sectors); // dmz_dev no longer has this, it moved to dmz_metadata
 
-	dev->zone_nr_blocks = dmz_sect2blk(dev->zone_nr_sectors);
-	dev->zone_nr_blocks_shift = ilog2(dev->zone_nr_blocks);
+	// dev->zone_nr_blocks = dmz_sect2blk(dev->zone_nr_sectors); // this also moved to dmz_metadata
+	// dev->zone_nr_blocks_shift = ilog2(dev->zone_nr_blocks); // also moved to dmz_metadata
 
 	dev->nr_zones = blkdev_nr_zones(dev->bdev->bd_disk);
 

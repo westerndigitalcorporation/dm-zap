@@ -179,7 +179,7 @@ static int dmzap_submit_bio(struct dmzap_target *dmzap,
 	//bio_advance(bio, clone->bi_iter.bi_size);
 
 	refcount_inc(&bioctx->ref);
-	generic_make_request(clone);
+	submit_bio_noacct(clone);
 
 	switch (bio_op(bio)) {
 	case REQ_OP_READ:

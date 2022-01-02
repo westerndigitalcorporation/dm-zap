@@ -346,7 +346,7 @@ void assert_heap_ok(struct dmzap_target *dmzap, int num){
 
     char *numbers = kzalloc(sizeof(char)*dmzap->nr_internal_zones, GFP_KERNEL);
 
-    for (i=0; i <= dmzap->dev->zone_nr_blocks;i++){
+    for (i=0; i <= dmz_sect2blk(dmzap->dev->zone_nr_sectors);i++){
         for (j=1; j <= dmzap->fegc_heaps[i]->size; j++){
             if (numbers[dmzap->fegc_heaps[i]->data[j]->seq]){
                 dmz_dev_info(dmzap->dev, "Error in: %d", num);
@@ -378,7 +378,7 @@ bool heaps_are_ok(struct dmzap_target *dmzap){
 
     char *numbers = kzalloc(sizeof(char)*dmzap->nr_internal_zones, GFP_KERNEL);
 
-    for (i=0; i <= dmzap->dev->zone_nr_blocks;i++){
+    for (i=0; i <= dmz_sect2blk(dmzap->dev->zone_nr_sectors);i++){
         for (j=1; j <= dmzap->fegc_heaps[i]->size; j++){
             if (numbers[dmzap->fegc_heaps[i]->data[j]->seq]){
 		dmz_dev_info(dmzap_ptr->dev, "Error in %u in heap: %d", dmzap->fegc_heaps[i]->data[j]->seq, i);
