@@ -363,6 +363,7 @@ int dmzap_validate_blocks(struct dmzap_target *dmzap,
 	struct dmzap_zone *zone_iterator;
 	struct dmzap_zone *current_zone;
 	bool found = false;
+    unsigned int current_zone_index;
 
   if(dmzap->show_debug_msg){
     dmz_dev_debug(dmzap->dev, "Validate backing_block %llu, %u blocks",
@@ -372,28 +373,30 @@ int dmzap_validate_blocks(struct dmzap_target *dmzap,
   WARN_ON(backing_block + nr_blocks > dmz_sect2blk(dmzap->dev->zone_nr_sectors) * dmzap->dev->nr_zones);
 
   while (nr_blocks) {
-    current_block = backing_block + (nr_blocks-1);
-    if (dmzap->map.invalid_device_block[current_block] == 1) {
-      dmzap->map.invalid_device_block[current_block] = 0;
-      dmzap->dmzap_zones[dmzap_block2zone_id(dmzap,current_block)].nr_invalid_blocks--;
-      if (current_zone->zone->cond == BLK_ZONE_COND_FULL && (dmzap->victim_selection_method == DMZAP_CONST_GREEDY || dmzap->victim_selection_method == DMZAP_CONST_CB)){
-				//dmz_dev_debug(dmzap->dev, "Updating constant time lists for zone %u with %d invalid blocks", current_zone->seq, current_zone->nr_invalid_blocks);
+      current_block = backing_block + (nr_blocks-1);
+      if (dmzap->map.invalid_device_block[current_block] == 1) {
+          dmzap->map.invalid_device_block[current_block] = 0;
+          current_zone_index = dmzap_block2zone_id(dmzap,current_block);
+          dmzap->dmzap_zones[current_zone_index].nr_invalid_blocks--;
+          current_zone = &dmzap->dmzap_zones[current_zone_index];
+          if (current_zone->zone->cond == BLK_ZONE_COND_FULL && (dmzap->victim_selection_method == DMZAP_CONST_GREEDY || dmzap->victim_selection_method == DMZAP_CONST_CB)){
+              //dmz_dev_debug(dmzap->dev, "Updating constant time lists for zone %u with %d invalid blocks", current_zone->seq, current_zone->nr_invalid_blocks);
 
 
-				// list_for_each_entry(zone_iterator, &(dmzap->num_invalid_blocks_lists[current_zone->nr_invalid_blocks+1]), num_invalid_blocks_link){
-				// 	if (zone_iterator == current_zone){
-				// 		found = true;
-				// 		break;
-				// 	}
-				// }
-				// BUG_ON(!found);
+              // list_for_each_entry(zone_iterator, &(dmzap->num_invalid_blocks_lists[current_zone->nr_invalid_blocks+1]), num_invalid_blocks_link){
+              // 	if (zone_iterator == current_zone){
+              // 		found = true;
+              // 		break;
+              // 	}
+              // }
+              // BUG_ON(!found);
 
 
-				list_del(&(current_zone->num_invalid_blocks_link));
-				list_add_tail(&(current_zone->num_invalid_blocks_link), &(dmzap->num_invalid_blocks_lists[current_zone->nr_invalid_blocks]));
-			}
-    }
-    nr_blocks--;
+              list_del(&(current_zone->num_invalid_blocks_link));
+              list_add_tail(&(current_zone->num_invalid_blocks_link), &(dmzap->num_invalid_blocks_lists[current_zone->nr_invalid_blocks]));
+          }
+      }
+      nr_blocks--;
   }
   //TODO validate the persistent mapping
   return 0;
