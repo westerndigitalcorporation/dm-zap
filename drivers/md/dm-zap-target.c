@@ -82,16 +82,13 @@ sector_t dmzap_get_seq_wp(struct dmzap_target *dmzap)
 static int dmzap_report_zones(struct dm_target *ti,
 		struct dm_report_zones_args *args, unsigned int nr_zones)
 {
-    // TODO: I commented this out for now
-	// struct dmzap_target *dmzap = ti->private;
-	// struct dmz_dev *dev = dmzap->dev;
-	// int ret;
+    struct dmzap_target *dmzap = ti->private;
+    struct dmz_dev *dev = dmzap->dev;
+    int ret;
 
-	// args->start = 0;
-	// ret = blkdev_report_zones(dev->bdev, 0, nr_zones,
-	// 	dm_report_zones_cb, args);
-	// if (ret != 0)
-	// 	return ret;
+    ret = dm_report_zones(dev->bdev, 0, 0, args, nr_zones);
+    if (ret != 0)
+        return ret;
 
 	return 0;
 }
@@ -897,6 +894,7 @@ static void dmzap_dtr(struct dm_target *ti)
 	dmzap_map_free(dmzap);
 	dmzap_put_zoned_device(ti);
 	mutex_destroy(&dmzap->chunk_lock);
+	kobject_put(zap_stat_kobject);
 	kfree(dmzap);
 }
 
