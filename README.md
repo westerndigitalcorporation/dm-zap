@@ -16,6 +16,10 @@ available at: TBD
 
 Initial Authors: Hans Holmberg, Dennis Maisenbacher, Reza Salkhordeh, and Nick Tehrany
 
+## Compile
+
+Enable `Device Drivers->Multiple devices driver support (RAID and LVM)->Conventional zone device target support` using `make menuconfig` and then compile the kernel normally.
+
 ## Usage
 
 A zoned block device must first be formatted using the dmzap tool. This will
