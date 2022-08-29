@@ -22,29 +22,53 @@ Enable `Device Drivers->Multiple devices driver support (RAID and LVM)->Conventi
 
 ## Usage
 
-A zoned block device must first be formatted using the dmzap tool. This will
-check the zone configuration of the disk, calculate the number of zones
-to reserve for the conventional zones and write the superblock.
+A zoned block device must be available (e.g.
+[setup](https://zonedstorage.io/docs/getting-started/nullblk) a `null_blk`
+device with the name "/dev/nullb1").
 
-The dmz tool also supports repairing the disk after a crash or a powerloss.
 
-Formatting the disk is needed prior to using it for the first time:
-
+In order to create a dm-zap target some parameters need to be selected.
+A parameter selection might look like this: 
 ```
-# format disk using the dmzap tool
-dmzap format --conventional 8 $1
-```
+device="/dev/nullb1"
 
-Once the disk is formatted, the device mapper target can be created:
+# Number of conventional zones of the given device
+conv="0"
 
-```
-# create dm-zap target
-dev=/dev/nvmeXnY
-echo "0 `blockdev --getsize ${dev}` zap ${dev}" | dmsetup create dmzap-`basename ${dev}`
-```
+# Overprovisioning rate (in %)
+op_rate="30"
 
-This will result in a disk exposing 8 conventional zones with the same size
-as the disk's sequential write required zones.
+# Class 0 threshold of Fast Cost-Benefit (affects dm-zap GC only when
+# victim_selection_method="2" is set)
+class_0_cap="125"
+
+# Class 0 optimal of Fast Cost-Benefit (affects dm-zap GC only when
+# victim_selection_method="2" is set)
+class_0_optimal="25"
+
+# Pick a GC victim selection method (0: Greedy, 1: Cost-Benefit,
+# 2: Fast Cost-Benefit, 3: Approximative Cost-Benefit, 4: Constant Greedy,
+# 5: Constant Cost-Benefit, 6: FeGC, 7: FaGC+)
+victim_selection_method="0"
+
+# Limit of free zones (in %) when the GC should start reclaiming space 
+reclaim_limit="10"
+
+# q limit of Approximative Cost-Benefit victim selection (affects dm-zap GC
+# only when victim_selection_method="3" is set)
+q_cap="30" 
+```
+Further information about the victim selection methods:
+- [A Flash-Memory Based File System](https://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.92.2279&rep=rep1&type=pdf)
+- [Constant Time Garbage Collection in SSDs](https://ieeexplore.ieee.org/document/9605386)
+- [ENVy: A Non-Volatile, Main Memory Storage System](https://dl.acm.org/doi/10.1145/195470.195506)
+- [Time-efficient Garbage Collection in SSDs](https://arxiv.org/abs/1807.09313)
+
+
+Finally the dm-zap device mapper target can be created:
+```
+echo "0 `blockdev --getsize ${device}` zap ${device} ${conv} ${op_rate} ${class_0_cap} ${class_0_optimal} ${victim_selection_method} ${reclaim_limit} ${q_cap}" | sudo dmsetup create dmzap-test-target
+```
 
 ## Community
 
